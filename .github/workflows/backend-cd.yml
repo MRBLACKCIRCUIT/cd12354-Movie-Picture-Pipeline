@@ -19,6 +19,7 @@ jobs:
     defaults:
       run:
         working-directory: starter/backend
+
     steps:
       - uses: actions/checkout@v4
 
@@ -39,6 +40,7 @@ jobs:
     defaults:
       run:
         working-directory: starter/backend
+
     steps:
       - uses: actions/checkout@v4
 
@@ -60,6 +62,7 @@ jobs:
     defaults:
       run:
         working-directory: starter/backend
+
     steps:
       - uses: actions/checkout@v4
 
@@ -81,6 +84,7 @@ jobs:
     defaults:
       run:
         working-directory: starter/backend/k8s
+
     steps:
       - uses: actions/checkout@v4
 
@@ -91,12 +95,28 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - uses: azure/setup-kubectl@v4
-        with:
-          version: latest
 
-      - run: aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
 
-      - run: |
-          kubectl kustomize . | kubectl apply -f -
+      - name: Update Kubernetes image
+        run: |
+          sed -i "s|image: backend|image: $ECR_REPOSITORY:${{ github.sha }}|g" deployment.yaml
+          echo "Updated deployment image:"
+          grep "image:" deployment.yaml
 
-      - run: kubectl rollout status deployment/backend
+      - name: Deploy to EKS
+        run: |
+          kubectl apply -k .
+
+      - name: Check deployment
+        run: |
+          kubectl rollout status deployment/backend --timeout=5m
+
+      - name: Verify deployment
+        run: |
+          kubectl get deployment backend
+          kubectl get pods
+          kubectl get deployment backend -o jsonpath="{.spec.template.spec.containers[0].image}"
+          echo
