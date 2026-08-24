@@ -19,14 +19,18 @@ jobs:
     defaults:
       run:
         working-directory: starter/frontend
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version-file: starter/frontend/.nvmrc
           cache: npm
           cache-dependency-path: starter/frontend/package-lock.json
+
       - run: npm ci
+
       - run: npm run lint
 
   test:
@@ -34,14 +38,18 @@ jobs:
     defaults:
       run:
         working-directory: starter/frontend
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version-file: starter/frontend/.nvmrc
           cache: npm
           cache-dependency-path: starter/frontend/package-lock.json
+
       - run: npm ci
+
       - run: CI=true npm test
 
   build:
@@ -50,18 +58,26 @@ jobs:
     defaults:
       run:
         working-directory: starter/frontend
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
+
       - uses: aws-actions/amazon-ecr-login@v2
-      - run: |
+
+      - name: Build frontend Docker image
+        run: |
           docker build \
             --build-arg=REACT_APP_MOVIE_API_URL=${{ secrets.REACT_APP_MOVIE_API_URL }} \
             --tag $ECR_REPOSITORY:${{ github.sha }} .
+
+      - name: Push frontend Docker image
+        run: |
           docker push $ECR_REPOSITORY:${{ github.sha }}
 
   deploy:
@@ -70,14 +86,39 @@ jobs:
     defaults:
       run:
         working-directory: starter/frontend/k8s
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
-      - run: aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
-      - run: |
-          kustomize edit set image frontend=$ECR_REPOSITORY:${{ github.sha }}
-          kustomize build | kubectl apply -f -
+
+      - uses: azure/setup-kubectl@v4
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+
+      - name: Update Kubernetes image
+        run: |
+          sed -i "s|image: frontend|image: $ECR_REPOSITORY:${{ github.sha }}|g" deployment.yaml
+          echo "Updated frontend image:"
+          grep "image:" deployment.yaml
+
+      - name: Deploy to EKS
+        run: |
+          kubectl apply -k .
+
+      - name: Check deployment
+        run: |
+          kubectl rollout status deployment/frontend --timeout=5m
+
+      - name: Verify deployment
+        run: |
+          kubectl get deployment frontend
+          kubectl get pods
+          kubectl get deployment frontend -o jsonpath="{.spec.template.spec.containers[0].image}"
+          echo
