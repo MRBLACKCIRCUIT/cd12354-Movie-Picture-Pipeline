@@ -6,8 +6,3 @@ resources:
   - deployment.yaml
 
 namespace: default
-
-images:
-  - name: backend
-    newName: backend
-    newTag: latest
